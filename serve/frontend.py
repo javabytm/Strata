@@ -48,8 +48,8 @@ class ChatTemplate:
 
     def render(self, messages: list[dict], tools: list[dict] | None = None, add_generation_prompt: bool = True,
                **kwargs) -> str:
-        return self.template.render(messages=messages, tools=tools, add_generation_prompt=add_generation_prompt,
-                                    **kwargs)
+        return self.template.render(messages=shielded_messages(messages), tools=_shielded(tools),
+                                    add_generation_prompt=add_generation_prompt, **kwargs)
 
 
 # ------------------------------------------------------------------------------------------------ requests
@@ -133,6 +133,54 @@ def images_of(messages: list[dict]) -> list[str]:
     <|vision_start|><|image_pad|><|vision_end|> per image item, message by message)."""
     return [item["source"] for m in messages if isinstance(m.get("content"), list)
             for item in m["content"] if item.get("type") == "image"]
+
+
+# ------------------------------------------------------------------------------------------------ control text
+# The prompt is tokenized with parse_special=True (server.py, Service.prepare), so control-token text that arrives
+# inside a message - an agent quoting this very template, a file a tool read, a user's paste - is encoded as the
+# real control token instead of as characters.  A stray <|im_start|> in the history unbalances the turns: the model
+# closes it with <|im_end|>, which is in the engine's stop ids, and the reply comes back with no text at all.
+# Measured on Qwen3.8-Flash-Next (IQ3_S, 262144 context): a reply that quoted "<|im_start|>" stopped at that
+# character (finish=stop), and the three turns after it returned 0 characters of content.  Twenty copies of the
+# literal read as 72 prompt tokens, the same text with the zero-width space below as 153 - the raw spelling matched
+# one special token each, the shielded one ordinary characters.
+#
+# Only the three tokens that end or unbalance a turn are shielded.  The vision markers are left alone on purpose:
+# a literal <|image_pad|> in content is already repaired after encoding, byte for byte, by the #150 fixup in
+# Service.prepare (test_server.ImageMarkers.test_literal_marker_with_an_image holds it to that).
+CONTROL_LITERALS = ("<|im_start|>", "<|im_end|>", "<|endoftext|>")
+
+
+def shield_control_literals(text: str) -> str:
+    """Text whose control-token spellings can no longer be matched by parse_special=True.  A zero-width space after
+    "<" keeps it readable to the model and to a human, and only the exact spelling is a special token, so the
+    tokenizer sees ordinary characters.  Text with no "<|" at all - the usual case, base64 image sources included -
+    is returned unchanged after one substring scan."""
+    if "<|" not in text:
+        return text
+    for literal in CONTROL_LITERALS:
+        if literal in text:
+            text = text.replace(literal, literal[0] + "\u200b" + literal[1:])
+    return text
+
+
+def _shielded(value):
+    """`value` with every string leaf shielded: content (a string, or the template's list of text and image items),
+    a tool call's arguments, a tool's parameters - everything the template renders."""
+    if isinstance(value, str):
+        return shield_control_literals(value)
+    if isinstance(value, dict):
+        return {k: _shielded(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_shielded(v) for v in value]
+    return value
+
+
+def shielded_messages(messages: list[dict]) -> list[dict]:
+    """The messages the template renders, with control-token text defused.  A copy: the caller keeps the original
+    for images_of() and for whatever it logs or echoes back."""
+    return [{k: (v if k == "role" else _shielded(v)) for k, v in m.items()} if isinstance(m, dict) else m
+            for m in messages or []]
 
 
 def _late_system_to_user(messages: list[dict]) -> list[dict]:
