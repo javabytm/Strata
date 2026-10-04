@@ -716,7 +716,10 @@ print(r.choices[0].message.content)
   answers from there (the engine continues from what it already holds, so nothing is read again). The wrap-up is
   part of the thinking the client sees and counts as output tokens. `"reasoning_budget_tokens": N` in
   `strata-<model>.json` sets it for every request; a request's own value wins, and `0` means no budget. Off by default;
-  Anthropic's `"thinking": {"budget_tokens": N}` still only chooses the level, as above.
+  Anthropic's `"thinking": {"budget_tokens": N}` still only chooses the level, as above. On reasoning work a cap costs
+  accuracy rather than time: on GPQA Diamond the correct answers used a median of 4,814 thinking tokens and a p90 of
+  27,542, so a 12,000-token budget would have cost 16 points. Details:
+  [`bench/results/2026-10-04-gpqa-thinking-budget`](../bench/results/2026-10-04-gpqa-thinking-budget/README.md).
 - **A reply that ends inside its thinking (#1053, opt-in).** Some turns write a sentence of reasoning and then the
   end-of-turn token with no `</think>`: the content is empty and an agent stops. `"reasoning_close_retry": true` in
   `strata-<model>.json` closes the thinking once (as the thinking budget does) and continues, once per request, only for
