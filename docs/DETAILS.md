@@ -472,7 +472,10 @@ print(r.choices[0].message.content)
   answers from there (the engine continues from what it already holds, so nothing is read again). The wrap-up is
   part of the thinking the client sees and counts as output tokens. `"reasoning_budget_tokens": N` in
   `strata-<model>.json` sets it for every request; a request's own value wins, and `0` means no budget. Off by default;
-  Anthropic's `"thinking": {"budget_tokens": N}` still only chooses the level, as above.
+  Anthropic's `"thinking": {"budget_tokens": N}` still only chooses the level, as above. On reasoning work a cap costs
+  accuracy rather than time: on GPQA Diamond the correct answers used a median of 4,814 thinking tokens and a p90 of
+  27,542, so a 12,000-token budget would have cost 16 points. Details:
+  [`bench/results/2026-10-04-gpqa-thinking-budget`](../bench/results/2026-10-04-gpqa-thinking-budget/README.md).
 - **Anthropic requests that don't ask for thinking (opt-in, 0.1.32, #278).** By default a `/v1/messages` request
   with no `"thinking"`, effort or budget thinks as the model's template does. `"anthropic_thinking": "on_request"` in
   `strata-<model>.json` renders such a request without thinking - Anthropic's own rule, and what Claude Code's short
