@@ -19,10 +19,34 @@ import time
 import urllib.request
 
 
+def api_key():
+    """The key the server requires once strata-<model>.json carries "api_key" (it does now).
+
+    Read from the config beside this script so no secret lives here; STRATA_API_KEY stays a
+    fallback for a shell that exports it.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    for name in sorted(os.listdir(here)):
+        if not (name.startswith("strata-") and name.endswith(".json")):
+            continue
+        try:
+            with open(os.path.join(here, name), encoding="utf-8") as fh:
+                key = json.load(fh).get("api_key")
+        except (OSError, ValueError):
+            continue
+        if key:
+            return key
+    return os.environ.get("STRATA_API_KEY") or None
+
+
 def stream(url, messages, think, max_tokens):
     body = {"model": "strata", "messages": messages, "stream": True, "max_tokens": max_tokens,
             "reasoning_effort": think}
-    req = urllib.request.Request(url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
+    headers = {"Content-Type": "application/json"}
+    key = api_key()
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), headers=headers)
     with urllib.request.urlopen(req, timeout=3600) as r:
         for raw in r:
             line = raw.decode("utf-8", "replace").strip()
